@@ -2033,7 +2033,11 @@ influence of C1 on the result."
               (round (+ (* x alpha) (* y (- 1 alpha)))))
             (color-values c1) (color-values c2)))))
 
-(defun nox--show-doc (string)
+(defvar nox-show-doc-display 'buffer)
+(defvar nox-show-signature-display 'popup)
+(defvar nox-doc-major-mode 'text-mode)
+
+(defun nox--show (display string)
   (let* ((bg-mode (frame-parameter nil 'background-mode))
          (background-color
           (cond ((eq bg-mode 'dark)
@@ -2041,33 +2045,31 @@ influence of C1 on the result."
                 ((eq bg-mode 'light)
                  (nox-color-blend (face-background 'default) "#000000" 0.9)))))
     (cond
-     ((featurep 'posframe)
-      (require 'posframe)
-      (if nox-doc-tooltip-font
-          (posframe-show
-           nox-doc-name
-           :string string
-           :font nox-doc-tooltip-font
-           :position (point)
-           :timeout nox-doc-tooltip-timeout
-           :background-color background-color
-           :foreground-color (face-attribute 'default :foreground)
-           :internal-border-width nox-doc-tooltip-border-width)
-        (posframe-show
-         nox-doc-name
-         :string string
-         :position (point)
-         :timeout nox-doc-tooltip-timeout
-         :background-color background-color
-         :foreground-color (face-attribute 'default :foreground)
-         :internal-border-width nox-doc-tooltip-border-width)
-        (sit-for most-positive-fixnum t)
-        (posframe-hide nox-doc-name)))
-     ((featurep 'popup)
-      (require 'popup)
-      (let ((pop (popup-tip string :nowait t :margin 1)))
-        (sit-for most-positive-fixnum t)
-        (popup-delete pop)))
+     ((equal 'popup display)
+      (if window-system
+          (if nox-doc-tooltip-font
+              (posframe-show
+               nox-doc-name
+               :string string
+               :font nox-doc-tooltip-font
+               :position (point)
+               :timeout nox-doc-tooltip-timeout
+               :background-color background-color
+               :foreground-color (face-attribute 'default :foreground)
+               :internal-border-width nox-doc-tooltip-border-width)
+            (posframe-show
+             nox-doc-name
+             :string string
+             :position (point)
+             :timeout nox-doc-tooltip-timeout
+             :background-color background-color
+             :foreground-color (face-attribute 'default :foreground)
+             :internal-border-width nox-doc-tooltip-border-width)
+            (sit-for most-positive-fixnum t)
+            (posframe-hide nox-doc-name))
+        (let ((pop (popup-tip string :nowait t :margin 1)))
+          (sit-for most-positive-fixnum t)
+          (popup-delete pop))))
      (t
       (let ((win-cfg (current-window-configuration)))
         (switch-to-buffer-other-window nox-doc-name)
@@ -2075,20 +2077,15 @@ influence of C1 on the result."
           (erase-buffer)
           (insert string)
           (beginning-of-buffer)
-          (read-only-mode t)
-          (local-set-key (kbd "q") 'kill-buffer-and-window)
-          (local-set-key (kbd "n") 'forward-line)
-          (local-set-key (kbd "j") 'forward-line)
-          (local-set-key (kbd "p") 'previous-line)
-          (local-set-key (kbd "k") 'previous-line)))))))
+          (funcall nox-doc-major-mode)
+          (read-only-mode t)))))))
 
-(defun nox-show-doc ()
-  "Show documentation at point, use by `posframe'."
+(defun nox-show-signature ()
+  "Show signature at point."
   (interactive)
   (let* ((buffer (current-buffer))
          (server (nox--current-server-or-lose))
-         (position-params (nox--TextDocumentPositionParams))
-         sig-showing)
+         (position-params (nox--TextDocumentPositionParams)))
     (cl-macrolet ((when-buffer-window
                    (&body body) ; notice the exception when testing with `ert'
                    `(when (or (get-buffer-window buffer) (ert-running-test))
@@ -2100,19 +2097,28 @@ influence of C1 on the result."
          (nox--lambda ((SignatureHelp) signatures activeSignature activeParameter)
            (when-buffer-window
             (when (cl-plusp (length signatures))
-              (setq sig-showing t)
-              (nox--show-doc (nox--sig-info signatures activeSignature activeParameter)))))
-         :deferred :textDocument/signatureHelp))
+              (nox--show nox-show-signature-display (nox--sig-info signatures activeSignature activeParameter)))))
+         :deferred :textDocument/signatureHelp)))))
+
+(defun nox-show-doc ()
+  "Show documentation at point."
+  (interactive)
+  (let* ((buffer (current-buffer))
+         (server (nox--current-server-or-lose))
+         (position-params (nox--TextDocumentPositionParams)))
+    (cl-macrolet ((when-buffer-window
+                   (&body body) ; notice the exception when testing with `ert'
+                   `(when (or (get-buffer-window buffer) (ert-running-test))
+                      (with-current-buffer buffer ,@body))))
       (when (nox--server-capable :hoverProvider)
         (jsonrpc-async-request
          server :textDocument/hover position-params
          :success-fn (nox--lambda ((Hover) contents range)
-                       (unless sig-showing
-                         (when-buffer-window
-                          (when-let (info (and (not (seq-empty-p contents))
-                                               (nox--hover-info contents
-                                                                range)))
-                            (nox--show-doc info)))))
+                       (when-buffer-window
+                        (when-let (info (and (not (seq-empty-p contents))
+                                             (nox--hover-info contents
+                                                              range)))
+                          (nox--show nox-show-doc-display info))))
          :deferred :textDocument/hover)))))
 
 (defun nox--apply-text-edits (edits &optional version)
