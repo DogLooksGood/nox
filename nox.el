@@ -2017,17 +2017,18 @@ is not active."
          (buffer-string))))
    when moresigs concat "\n"))
 
-(defun nox-color-blend (c1 c2 alpha)
+(defun nox-color-blend (c1 c2 alpha default)
   "Blend two colors C1 and C2 with ALPHA.
 C1 and C2 are hexidecimal strings.
 ALPHA is a number between 0.0 and 1.0 which corresponds to the
 influence of C1 on the result."
-  (ignore-errors
+  (if (string-equal "unspecified-bg" c1)
+      default
     (apply #'(lambda (r g b)
-               format "#%02x%02x%02x"
-               (ash r -8)
-               (ash g -8)
-               (ash b -8))
+               (format "#%02x%02x%02x"
+                       (ash r -8)
+                       (ash g -8)
+                       (ash b -8)))
            (cl-mapcar
             (lambda (x y)
               (round (+ (* x alpha) (* y (- 1 alpha)))))
@@ -2041,9 +2042,9 @@ influence of C1 on the result."
   (let* ((bg-mode (frame-parameter nil 'background-mode))
          (background-color
           (cond ((eq bg-mode 'dark)
-                 (nox-color-blend (face-background 'default) "#000000" 0.5))
+                 (nox-color-blend (face-background 'default) "#000000" 0.5 "grey40"))
                 ((eq bg-mode 'light)
-                 (nox-color-blend (face-background 'default) "#000000" 0.9)))))
+                 (nox-color-blend (face-background 'default) "#000000" 0.9 "grey60")))))
     (cond
      ((equal 'popup display)
       (if window-system
